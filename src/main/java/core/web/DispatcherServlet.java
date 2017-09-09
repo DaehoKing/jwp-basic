@@ -14,42 +14,33 @@ import java.io.IOException;
 /**
  * Created by dapa56 on 2017. 9. 8..
  */
-@WebServlet(urlPatterns = "/")
+@WebServlet(urlPatterns = "/", loadOnStartup = 1)
 public class DispatcherServlet extends HttpServlet {
 	private static final Logger log = LoggerFactory.getLogger(DispatcherServlet.class);
 
-	@Override protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-//		super.doGet(req, resp);
+	private final String REDIRECT_PREFIX = "redirect:";
+
+	@Override protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
 		try {
-			this.processRequest(req,resp);
-		} catch (Exception e) {
+			String path = req.getRequestURI();
+			Controller controller = RequestMapping.getController(path);
+			String view = controller.execute(req, resp);
+			log.debug("View Name : {}", view);
+			view(view, req, resp);
+		}
+		catch (Exception e) {
 			log.debug("{}",e);
 		}
 	}
 
-	@Override protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-//		super.doPost(req, resp);
-		try {
-			this.processRequest(req, resp);
-		} catch (Exception e) {
-			log.debug("{}",e);
-		}
-	}
-
-	private void processRequest(HttpServletRequest req, HttpServletResponse resp) throws Exception {
-		String path = req.getRequestURI().substring(req.getContextPath().length());
-		log.debug("Servlet path : {}", path);
-		Controller controller = RequestMapping.getController(path);
-		String view = controller.execute(req, resp);
-		log.debug("result of controller : {}", view);
-
-		if(view != null && view.startsWith("redirect:")) {
-			view = view.split(":")[1];
-			resp.sendRedirect(view);
+	private void view(String view, HttpServletRequest req, HttpServletResponse resp) throws IOException, ServletException {
+		if(view != null && view.startsWith(REDIRECT_PREFIX)) {
+			resp.sendRedirect(view.substring(REDIRECT_PREFIX.length()));
 			return;
 		}
 
 		RequestDispatcher dispatcher = req.getRequestDispatcher(view);
 		dispatcher.forward(req,resp);
 	}
+
 }
