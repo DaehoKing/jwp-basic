@@ -1,19 +1,20 @@
 package core.nmvc;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import core.annotation.Controller;
 import core.annotation.RequestMapping;
 import core.annotation.RequestMethod;
+import org.reflections.Reflections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.servlet.http.HttpServletRequest;
-import java.io.File;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class AnnotationHandlerMapping implements HandlerMapping{
     private static final Logger logger = LoggerFactory.getLogger(AnnotationHandlerMapping.class);
@@ -26,20 +27,14 @@ public class AnnotationHandlerMapping implements HandlerMapping{
     }
 
     public void initialize() {
-        this.getAnnotatedClassList(Controller.class).stream().forEach(cls ->{
-            Object handler = null;
-            try {
-                handler = cls.getConstructor().newInstance();
-            } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
-                logger.error("{}", e);
+        Reflections reflections = new Reflections(basePackages);
+        List<Object> handlerList = getHandlerList(reflections.getTypesAnnotatedWith(Controller.class));
+        for(Object handler : handlerList) {
+            for(Method method : getHandlerMethodList(handler)) {
+                RequestMapping rm = method.getAnnotation(RequestMapping.class);
+                handlerExecutions.put(new HandlerKey(rm.value(), rm.method()), new HandlerExecution(handler, method));
             }
-            Controller annotation = (Controller)cls.getAnnotation(Controller.class);
-            for (Method handlerMethod : getAnnotatedMethodList(cls.getMethods(), RequestMapping.class)) {
-                RequestMapping rm = handlerMethod.getAnnotation(RequestMapping.class);
-                String path = annotation.value() + rm.value();
-                handlerExecutions.put(new HandlerKey(path, rm.method()), new HandlerExecution(handler, handlerMethod));
-            }
-        });
+        }
     }
 
     public HandlerExecution getHandler(HttpServletRequest request) {
@@ -48,61 +43,29 @@ public class AnnotationHandlerMapping implements HandlerMapping{
         return handlerExecutions.get(new HandlerKey(requestUri, rm));
     }
 
-    private List<Method> getAnnotatedMethodList(Method[] methods, Class annotation) {
-        List<Method> annotated = new ArrayList<>();
-        for (Method method: methods) {
-            if(method.isAnnotationPresent(annotation)) {
-                annotated.add(method);
+    private List<Method> getHandlerMethodList(Object handler) {
+        List<Method> handlerMethods = Lists.newArrayList();
+        for(Method method : handler.getClass().getMethods()) {
+            if(method.isAnnotationPresent(RequestMapping.class)) {
+                handlerMethods.add(method);
             }
         }
-        return annotated;
-
+        return handlerMethods;
     }
-    private List<Class> getAnnotatedClassList(Class annotation) {
-        List<Class> clazzList = new ArrayList<Class>();
-        for (String fileName :
-                this.getFileNameList()) {
+
+    private List<Object> getHandlerList(Set<Class<?>> clsSet) {
+        List<Object> executionList = new ArrayList<>();
+        for (Class<?> cls : clsSet) {
+            Object handler = null;
             try {
-                Class clazz = Class.forName(fileName);
-                if(clazz.isAnnotationPresent(annotation)) {
-                    clazzList.add(Class.forName(fileName));
-                }
-            } catch (ClassNotFoundException e) {
+                handler = cls.newInstance();
+                executionList.add(handler);
+            } catch (InstantiationException | IllegalAccessException e) {
                 logger.error("{}", e);
+                continue;
             }
         }
-
-        return clazzList;
+        return executionList;
     }
 
-    private List<String> getFileNameList() {
-        List<String> fileNameList= new ArrayList<>();
-        for(String basePackage : basePackages) {
-            basePackage = basePackage.replace(".", "/");
-            searchFiles(new File(ClassLoader.getSystemClassLoader().getResource("./" + basePackage).getPath()), fileNameList);
-        }
-        return fileNameList;
-    }
-
-    public void searchFiles(File file, List<String>fileNameList) {
-        if(file.isDirectory()) {
-            for (File f :
-                    file.listFiles()) {
-                searchFiles(f,fileNameList);
-            }
-        }
-        else {
-            String fileName = file.getName();
-            if(fileName.endsWith(".class")) {
-                for(String basePackage : basePackages) {
-                    int basePackagePos = file.getPath().indexOf(basePackage.replace(".","/"));
-                    if( basePackagePos != -1 ) {
-                        fileNameList.add(
-                                file.getPath().substring(basePackagePos, file.getPath().indexOf(".class")).replace("/", ".")
-                        );
-                    }
-                }
-            }
-        }
-    }
 }
